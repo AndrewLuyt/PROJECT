@@ -7,6 +7,10 @@
 #    http://shiny.rstudio.com/
 #
 
+library(dplyr)
+library(ggplot2)
+library(tibble)
+library(tidyr)
 library(shiny)
 library(caret)  # unified modeling frameworkb
 
@@ -21,78 +25,92 @@ ui <- fluidPage(
   # Sidebar with a slider input for number of bins
   sidebarLayout(
     sidebarPanel(
-      sliderInput("bins",
-                  "Number of bins:",
-                  min = 1,
-                  max = 50,
-                  value = 30),
       shiny::selectInput(inputId = 'dataset', label = "Choose dataset",
-                         choices = c('foo', 'mtcars', 'Orange'),
-                         selected = 'Orange', multiple = FALSE)
+                         choices = c('foo', 'mtcars', 'swiss'),
+                         selected = 'mtcars', multiple = FALSE)
     ),
 
     # Show a plot of the generated distribution
     mainPanel(
       tabsetPanel(id="main",
                   tabPanel("summary",
-                           plotOutput("distPlot"),
+                           plotOutput('rmsePlot'),
+                           plotOutput("predictPlot"),
                            verbatimTextOutput('lm.summary'),
                            verbatimTextOutput('knn.summary'),
                            verbatimTextOutput('rf.summary')),
-                  tabPanel("linear",
-                           tableOutput('linear.table')),
-                  tabPanel("knn"),
-                  tabPanel("randomforest"))
-
-
+                  tabPanel("linear", plotOutput('linear.residuals')),
+                  tabPanel("knn", plotOutput('knn.residuals')),
+                  tabPanel("rf", plotOutput('rf.residuals')))
     )
   )
 )
 
-# Define server logic required to draw a histogram
-server <- function(input, output) {
 
-  # df()[, 1] always the response Y
+server <- function(input, output) {
+  set.seed(1712)
+
+  # df()[, 1] is always the response Y
   df <- reactive({
     switch (input$dataset,
       foo = foo,
       mtcars = mtcars,
-      Orange = data.frame(circumference = Orange$circumference, age = Orange$age)
+      swiss = cbind(swiss[, 6, drop=F], swiss[, 1:5])
     )
   })
 
   modelFormula <- reactive({
     switch(input$dataset,
            mtcars = as.formula(mpg ~ .),
-           Orange = as.formula(circumference ~ age))
+           swiss = as.formula(Infant.Mortality ~ .))
   })
 
-  linearModel <- reactive({
-    fit <- train(modelFormula(), df(), method='lm', trControl = tc)$finalModel
+  linear.model <- reactive({
+    fit <- train(modelFormula(), df(), method='lm', trControl = tc)
   })
 
-  knnModel <- reactive({
-    fit <- train(modelFormula(), df(), method='knn', trControl = tc)$finalModel
+  knn.model <- reactive({
+    fit <- train(modelFormula(), df(), method='knn', trControl = tc)
   })
 
-  rfModel <- reactive({
-    fit <- train(modelFormula(), df(), method='rf', trControl = tc)$finalModel
+  rf.model <- reactive({
+    fit <- train(modelFormula(), df(), method='rf', trControl = tc)
   })
 
-  output$distPlot <- renderPlot({
-    # generate bins based on input$bins from ui.R
-    x    <- df()[, 1]
-    bins <- seq(min(x), max(x), length.out = input$bins + 1)
-
-    # draw the histogram with the specified number of bins
-    hist(x, breaks = bins, col = 'darkgray', border = 'white')
+  predictions <- reactive({
+    tibble(linear.model = predict(linear.model()),
+           knn.model = predict(knn.model()),
+           rf.model = predict(rf.model()),
+           y = df()[, 1]) %>%
+      pivot_longer(cols = c('linear.model', 'knn.model', 'rf.model'),
+                   names_to = 'model', values_to = 'prediction')
   })
 
-  output$linear.table <- renderTable(df())
+  output$predictPlot <- renderPlot({
+    predictions() %>%
+      ggplot(aes(y, prediction, col=model)) +
+      geom_line(width=2) +
+      labs(title = 'Prediction Performance', y = 'Predicted', x='Actual')
+  })
 
-  output$lm.summary <- renderPrint(postResample(predict(linearModel()), df()[, 1]))
-  output$knn.summary <- renderPrint(postResample(predict(knnModel(), df()[, 1]), df()[, 1]))
-  output$rf.summary <- renderPrint(postResample(predict(rfModel()), df()[, 1]))
+  output$rmsePlot <- renderPlot({
+    tibble(linear = postResample(predict(linear.model()), df()[, 1])[1],
+           knn = postResample(predict(knn.model()), df()[, 1])[1],
+           randomForest = postResample(predict(rf.model()), df()[, 1])[1]) %>%
+      pivot_longer(cols = everything(), names_to = 'model', values_to = 'RMSE') %>%
+      ggplot(aes(model, RMSE)) +
+      geom_col() +
+      labs(title = "Prediction error (lower is better)")
+  })
+
+  #output$linear.table <- renderTable(predictions())
+  output$linear.residuals <- renderPlot(hist(resid(linear.model())))
+  output$knn.residuals <- renderPlot(hist(resid(knn.model())))
+  output$rf.residuals <- renderPlot(hist(resid(rf.model())))
+
+  output$lm.summary <- renderPrint(postResample(predict(linear.model()), df()[, 1]))
+  output$knn.summary <- renderPrint(postResample(predict(knn.model()), df()[, 1]))
+  output$rf.summary <- renderPrint(postResample(predict(rf.model()), df()[, 1]))
 }
 
 # Run the application
