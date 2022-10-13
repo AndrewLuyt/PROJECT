@@ -6,6 +6,10 @@ output: html_notebook
 # Shiny App: DDP Project
 
 * Choose a dataset from a dropdown (3 datasets, pre-chosen)
+  * allow selection of variables (with default)
+  * see `conditionalPanel`
 * Create 3 caret models
   * Plot actual vs predicted for models
   * Assess accuracy with RMSE
+* Overall results on main tab
+* detailed model assessment on 3 other tabs
