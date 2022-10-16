@@ -25,6 +25,7 @@ ui <- fluidPage(
   # Sidebar with a slider input for number of bins
   sidebarLayout(
     sidebarPanel(
+      helpText("Choose a dataset. Three regression models will be created and their training performance plotted."),
       shiny::selectInput(inputId = 'dataset', label = "Choose dataset",
                          choices = c('foo', 'mtcars', 'swiss'),
                          selected = 'mtcars', multiple = FALSE)
@@ -35,13 +36,21 @@ ui <- fluidPage(
       tabsetPanel(id="main",
                   tabPanel("summary",
                            plotOutput('rmsePlot'),
-                           plotOutput("predictPlot"),
+                           plotOutput("predictPlot")),
+                  tabPanel("linear",
+                           plotOutput('linear.residuals'),
+                           helpText("Model summary:"),
                            verbatimTextOutput('lm.summary'),
-                           verbatimTextOutput('knn.summary'),
-                           verbatimTextOutput('rf.summary')),
-                  tabPanel("linear", plotOutput('linear.residuals')),
-                  tabPanel("knn", plotOutput('knn.residuals')),
-                  tabPanel("rf", plotOutput('rf.residuals')))
+                           verbatimTextOutput("lm.longsummary"),
+                           plotOutput('linear.diagnostics')),
+                  tabPanel("knn",
+                           plotOutput('knn.residuals'),
+                           helpText("Model summary:"),
+                           verbatimTextOutput('knn.summary')),
+                  tabPanel("rf",
+                           plotOutput('rf.residuals'),
+                           helpText("Model summary:"),
+                           verbatimTextOutput('rf.summary')))
     )
   )
 )
@@ -81,15 +90,16 @@ server <- function(input, output) {
     tibble(linear.model = predict(linear.model()),
            knn.model = predict(knn.model()),
            rf.model = predict(rf.model()),
-           y = df()[, 1]) %>%
-      pivot_longer(cols = c('linear.model', 'knn.model', 'rf.model'),
-                   names_to = 'model', values_to = 'prediction')
+           y = df()[, 1])
   })
 
   output$predictPlot <- renderPlot({
     predictions() %>%
+      pivot_longer(cols = c('linear.model', 'knn.model', 'rf.model'),
+                   names_to = 'model', values_to = 'prediction') %>%
       ggplot(aes(y, prediction, col=model)) +
-      geom_line(width=2) +
+      geom_abline(intercept=0, slope=1, lty=2, lwd=1) +
+      geom_line(lwd=0.8) +
       labs(title = 'Prediction Performance', y = 'Predicted', x='Actual')
   })
 
@@ -104,13 +114,28 @@ server <- function(input, output) {
   })
 
   #output$linear.table <- renderTable(predictions())
-  output$linear.residuals <- renderPlot(hist(resid(linear.model())))
-  output$knn.residuals <- renderPlot(hist(resid(knn.model())))
-  output$rf.residuals <- renderPlot(hist(resid(rf.model())))
+  output$linear.residuals <- renderPlot(hist(resid(linear.model()), main="Residuals"))
+  output$knn.residuals <- renderPlot(hist(resid(knn.model()), main="Residuals"))
+  output$rf.residuals <- renderPlot(hist(resid(rf.model()), main="Residuals"))
 
-  output$lm.summary <- renderPrint(postResample(predict(linear.model()), df()[, 1]))
-  output$knn.summary <- renderPrint(postResample(predict(knn.model()), df()[, 1]))
-  output$rf.summary <- renderPrint(postResample(predict(rf.model()), df()[, 1]))
+  output$lm.summary <- renderPrint({
+    postResample(predictions()$linear.model, df()[, 1])
+  })
+  output$lm.longsummary <- renderPrint({
+    summary(linear.model())
+  })
+  output$linear.diagnostics <- renderPlot({
+    par(mfrow=c(2,2))
+    plot(linear.model()$finalModel)
+  })
+  output$knn.summary <- renderPrint({
+    postResample(predictions()$knn.model, df()[, 1])
+  })
+  # output$rf.summary <- renderPrint(postResample(predict(rf.model()), df()[, 1]))
+  # output$rf.summary <- renderPrint("Random forest summary???")
+  output$rf.summary <- renderPrint({
+    postResample(predictions()$rf.model, df()[, 1])
+  })
 }
 
 # Run the application
